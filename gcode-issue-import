@@ -1,9 +1,34 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
+use 5.8.0;
 use Net::Google::Code '0.19';
 use Net::GitHub '0.21';
 use Data::Dumper;
+
+=head1 NAME
+
+gcode-issue-import - Import issues from Google Code into Github's issue tracker
+
+=head1 SYNOPSIS
+
+    gcode-issue-import your_googlecode_projectname owner/githubreponame
+
+=head1 AUTHORS
+
+Dave O'Neill <dmo@dmo.ca>
+
+Based on google-code-to-github-issues.pl by Tatsuhiko Miyagawa
+(http://remediecode.org/2009/04/moved-issues-to-github.html)
+
+=head1 LICENSE
+
+This program is free softwarew; you can redistribute it and/or modify it
+under the same terms as Perl itself.
+
+=cut
+
+our $VERSION = '0.100';
 
 my($gc_proj, $gh_proj) = @ARGV;
 
