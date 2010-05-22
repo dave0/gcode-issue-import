@@ -49,6 +49,24 @@ Full manpage
 
 =back
 
+=head1 SEE ALSO
+
+=over 4
+
+=item * 
+
+google-code-to-github-issues.pl by Tatsuhiko Miyagawa
+(L<http://remediecode.org/2009/04/moved-issues-to-github.html>), which was the basis for this script
+
+=item *
+
+L<App::SD|App::SD>, which purports to do bidirectional replication of issues
+between various bugtrackers, including Google Code and Github.  It didn't work
+for me, however.
+
+
+=cut
+
 =head1 AUTHORS
 
 Dave O'Neill <dmo@dmo.ca>
