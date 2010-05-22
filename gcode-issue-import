@@ -4,7 +4,8 @@ use warnings;
 use 5.8.0;
 use Net::Google::Code '0.19';
 use Net::GitHub '0.21';
-use Data::Dumper;
+use Getopt::Long;
+use Pod::Usage;
 
 =head1 NAME
 
@@ -12,7 +13,9 @@ gcode-issue-import - Import issues from Google Code into Github's issue tracker
 
 =head1 SYNOPSIS
 
-   gcode-issue-import your_googlecode_projectname owner/githubreponame
+    gcode-issue-import \
+        --from your_googlecode_projectname \
+        --to   owner/githubreponame
 
 =head1 DESCRIPTION
 
@@ -23,9 +26,37 @@ This should be considered ALPHA-QUALITY CODE .  Do not (yet) run it targeting a
 Github issue tracker that contains data you care about, or you may spend days
 manually deleting ugly tickets.
 
-Before using, you must first add your github user and token to your global
-.gitconfig, so that the script can access them.  Then run it as specified in
-the synopsys.
+=head1 OPTIONS
+
+=over 4
+
+=item --from <google code project name>
+
+The project name of your Google Code project.  Mandatory.
+
+=item --to <github user/repository>
+
+The target Github repository, in user/repositoryname format.  Mandatory.
+
+=item --github-login <username>
+
+Your Github login name.  Optional.  If not provided, value will be pulled from
+your git configuration with `git config`
+
+=item --github-token <api token>
+
+Your Github API token.  Optional.  If not provided, value will be pulled from
+your git configuration with `git config`
+
+=item --help
+
+Short-form help
+
+=item --man
+
+Full manpage
+
+=back
 
 =head1 AUTHORS
 
@@ -36,20 +67,36 @@ Based on google-code-to-github-issues.pl by Tatsuhiko Miyagawa
 
 =head1 LICENSE
 
-This program is free softwarew; you can redistribute it and/or modify it
+This program is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
 
 =cut
 
 our $VERSION = '0.100';
 
-my($gc_proj, $gh_proj) = @ARGV;
-
+my($gc_proj, $gh_proj);
 my %github;
+GetOptions(
+	'from=s'         => \$gc_proj,
+	'to=s'           => \$gh_proj,
+	'github-login=s' => \$github{'login'},
+	'github-token=s' => \$github{'token'},
+	'help'           => sub { pod2usage( -exitval => 0, -verbose => 1 ) },
+	'man'            => sub { pod2usage( -exitval => 0, -verbose => 2 ) },
+) || pod2usage( -exitval => 1, -verbose => 0 );
+
+if( !$gc_proj ) {
+	pod2usage( -message => 'You must specify a Google Code project with --from');
+}
+
+if( !$gh_proj || $gh_proj !~ m{^[^/]+/[^/]+$}) {
+	pod2usage( -message => 'You must specify a valid-looking Github repository with --to');
+}
+
 @github{qw( owner repo )} = split '/', $gh_proj;
 
-chomp($github{login} = `git config github.user`);
-chomp($github{token} = `git config github.token`);
+chomp($github{login} = `git config github.user`)  unless $github{login};
+chomp($github{token} = `git config github.token`) unless $github{token};
 
 my $code = Net::Google::Code->new(project => $gc_proj);
 my $github = Net::GitHub->new(%github);
@@ -82,12 +129,21 @@ sub import_issue
 		. $issue->description();
 
 	my $gh_issue = $gi->open($issue->summary, $desc_with_user);
-	warn $issue->id() . " -> " . $gh_issue->{number};
 
 	if( ! $gh_issue->{number} ) {
-		# TODO: should really try and recover from this...
-		die Dumper $gh_issue;
+		# Probably an error
+		if( exists $gh_issue->{error} ) {
+			die "Net::GitHub aborted ticket creation with error: $gh_issue->{error}";
+		}
+		die "Net::GitHub didn't successfully create a ticket for some unknown reason, instead returning $gh_issue";
 	}
+
+	print 'Google Code issue '
+		. $issue->id
+		. ' (' . $issue->summary
+		. ') created as Github issue '
+		. $gh_issue->{number}
+		. "\n";
 
 	# Labels
 	foreach my $label ( @{ $issue->labels } ) {
