@@ -14,6 +14,11 @@ gcode-issue-import - Import issues from Google Code into Github's issue tracker
 
     gcode-issue-import your_googlecode_projectname owner/githubreponame
 
+=head1 DESCRIPTION
+
+This script aims to pull as much data as possible from Google Code's issue
+tracker and insert it into Github's issue tracker.
+
 =head1 AUTHORS
 
 Dave O'Neill <dmo@dmo.ca>
@@ -41,7 +46,7 @@ chomp($github{token} = `git config github.token`);
 my $code = Net::Google::Code->new(project => $gc_proj);
 my $github = Net::GitHub->new(%github);
 
-my @closed_statii = qw(
+my @gcode_closed_statii = qw(
 	Fixed
 	Verified
 	Invalid
@@ -51,50 +56,123 @@ my @closed_statii = qw(
 
 for my $issue ( $code->issue->list() ) {
 
+	$issue->load_comments();
+
+	import_issue( $github->issue, $issue );
+
+	# Ensure we don't blow Github's 60 requests per minute API limit.
+	sleep (2);
+}
+
+sub import_issue
+{
+	my ($gi, $issue) = @_;
+
 	my $desc_with_user =
 		"Originally filed by " . $issue->reporter . " on " . $issue->reported
 		. "\n\n"
 		. $issue->description();
 
-	my $gh_issue = $github->issue->open($issue->summary, $desc_with_user);
+	my $gh_issue = $gi->open($issue->summary, $desc_with_user);
 	warn $issue->id() . " -> " . $gh_issue->{number};
 
 	if( ! $gh_issue->{number} ) {
-		# WTF.
+		# TODO: should really try and recover from this...
 		die Dumper $gh_issue;
 	}
 
 	# Labels
 	foreach my $label ( @{ $issue->labels } ) {
-		$github->issue->add_label( $gh_issue->{number}, $label );
+		$gi->add_label( $gh_issue->{number}, $label );
 	}
 
 	# Comments
 	$issue->load_comments();
 	foreach my $comment (@{ $issue->comments }) {
+
+		my @update_info = ();
+
 		if( $comment->updates ) {
+
+			# Can't handle change in ownership via Net::GitHub
+			if (exists $comment->updates->{owner} ) {
+				my $o = delete $comment->updates->{owner};
+				push(@update_info, "Original ticket set owner to $o");
+			}
+
 			if (exists $comment->updates->{labels} ) {
-				foreach ( @{ $comment->updates->{labels} } ) {
+				my $l = delete $comment->updates->{labels};
+				foreach ( @{ $l } ) {
 					if( s/^-// ) {
-						$github->issue->remove_label( $gh_issue->{number}, $_);
+						$gi->remove_label( $gh_issue->{number}, $_);
+						push(@update_info, "Removed label $_");
 					} else {
-						$github->issue->add_label( $gh_issue->{number}, $_);
+						$gi->add_label( $gh_issue->{number}, $_);
+						push(@update_info, "Added label $_");
 					}
 				}
 			}
-			# TODO other updates
-			warn Dumper $comment->updates if $comment->updates;
+
+			if( exists $comment->updates->{status} ) {
+				my $s = delete $comment->updates->{status};
+				update_status( $gi, $gh_issue, $s );
+				push(@update_info, "Original ticket set status to $s (we converted to $gh_issue->{state})");
+			}
+
+			if( exists $comment->updates->{summary} ) {
+				my $s = delete $comment->updates->{summary};
+				$gi->edit( $gh_issue->{number},
+					$s,
+					$gh_issue->{body});
+				push(@update_info, "Summary changed from '$gh_issue->{summary}' to '$s'");
+				$gh_issue->{summary} = $s;
+			}
+
+			# Warn of missed updates
+			foreach my $unhandled (keys %{$comment->updates}) {
+				warn "Didn't handle update key $unhandled";
+			}
 		}
-		next unless $comment->content;
-		my $comment_with_user = "Original comment by " . $comment->author . " on " . $comment->date . "\n\n" . $comment->content();
-#		$github->issue->comment($gh_issue->{number}, $comment_with_user);
+
+		next unless ($comment->content || scalar @update_info);
+
+		my $comment_with_user =
+			"Updated by "
+			. $comment->author
+			. " on "
+			. $comment->date;
+
+		if( $comment->content ) {
+			$comment_with_user .= "\n\n" . $comment->content;
+		}
+
+		if( @update_info ) {
+			$comment_with_user .= "\n\n" . join("\n", @update_info);
+		}
+
+		$gi->comment($gh_issue->{number}, $comment_with_user);
 	}
 
-	if( grep { $_ eq $issue->status } @closed_statii ) {
-#		$github->issue->close( $gh_issue->{number} );
+	# Set the current ticket status, if changed
+	my $old_state = $gh_issue->{state};
+	update_status( $gi, $gh_issue, $issue->status );
+	if( $old_state ne $gh_issue->{state} ) {
+		my $s = $issue->status;
+		$gi->comment( $gh_issue->{number}, "Original ticket set status to $s (we converted to $gh_issue->{state})");
 	}
 
 	# TODO attachments?
-
-	sleep (2);
 }
+
+sub update_status
+{
+	my ($gi, $gh, $gcode_status) = @_;
+	if( grep { $_ eq $gcode_status } @gcode_closed_statii ) {
+		$gi->close( $gh->{number} ) unless $gh->{state} eq 'closed';
+		$gh->{state} = 'closed';
+	} else {
+		$gi->reopen( $gh->{number} ) unless $gh->{state} eq 'open';
+		$gh->{state} = 'open';
+	}
+}
+
