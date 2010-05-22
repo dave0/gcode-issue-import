@@ -140,9 +140,6 @@ for my $issue ( $code->issue->list(can => 'all', start_index => $start_index, ma
 	$issue->load_comments();
 
 	import_issue( $github, $issue );
-
-	# Ensure we don't blow Github's 60 requests per minute API limit.
-	sleep (2);
 }
 
 # die()'s on ANY error we know about.  Caller must catch.
@@ -252,6 +249,14 @@ sub import_issue
 package Private::Net::GitHub::Issue;
 use Carp qw(confess);
 
+
+sub _throttle_request_rate
+{
+	# Sleep at least 1s per request to keep us under 60 per minute as per
+	# API docs.
+	sleep(1);
+}
+
 sub _die_if_error
 {
 	my ($return) = @_;
@@ -267,6 +272,7 @@ sub new
 
 	my $gi = $args->{github}->issue();
 
+	_throttle_request_rate();
 	my $self = $gi->open($args->{title}, $args->{body});
 
 	_die_if_error( $self );
@@ -283,12 +289,14 @@ sub new
 sub add_label
 {
 	my ($self, $label) = @_;
+	_throttle_request_rate();
 	_die_if_error( $self->{_gi}->add_label($self->{number}, $label ) );
 }
 
 sub remove_label
 {
 	my ($self, $label) = @_;
+	_throttle_request_rate();
 	_die_if_error( $self->{_gi}->remove_label($self->{number}, $label ) );
 }
 
@@ -299,6 +307,7 @@ sub edit
 	$title = $self->{title} unless defined $title;
 	$body  = $self->{body}  unless defined $body;
 
+	_throttle_request_rate();
 	_die_if_error( $self->{_gi}->edit($self->{number}, $title, $body ) );
 	$self->{title} = $title;
 
@@ -308,6 +317,7 @@ sub edit
 sub comment
 {
 	my ($self, $comment) = @_;
+	_throttle_request_rate();
 	_die_if_error( $self->{_gi}->comment($self->{number}, $comment ) );
 }
 
@@ -315,6 +325,7 @@ sub set_status
 {
 	my ($self, $gcode_status) = @_;
 
+	_throttle_request_rate();
 	if( grep { $_ eq $gcode_status } @gcode_closed_statii ) {
 		_die_if_error( $self->{_gi}->close( $self->{number} ) ) unless $self->{state} eq 'closed';
 		$self->{state} = 'closed';
