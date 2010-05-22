@@ -8,4 +8,9 @@ requires  'Net::GitHub'       => '0.21';
 
 install_script 'gcode-issue-import';
 
+postamble <<END_MAKE;
+readme:
+	perldoc -u gcode-issue-import > README.pod
+END_MAKE
+
 WriteAll;

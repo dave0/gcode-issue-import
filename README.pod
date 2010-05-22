@@ -1,0 +1,36 @@
+=head1 NAME
+
+gcode-issue-import - Import issues from Google Code into Github's issue tracker
+
+=head1 SYNOPSIS
+
+   gcode-issue-import your_googlecode_projectname owner/githubreponame
+
+=head1 DESCRIPTION
+
+This script aims to pull as much data as possible from Google Code's issue
+tracker and insert it into Github's issue tracker.
+
+This should be considered ALPHA-QUALITY CODE .  Do not (yet) run it targeting a
+Github issue tracker that contains data you care about, or you may spend days
+manually deleting ugly tickets.
+
+Before using, you must first add your github user and token to your global
+.gitconfig, so that the script can access them.  Then run it as specified in
+the synopsys.
+
+=head1 AUTHORS
+
+Dave O'Neill <dmo@dmo.ca>
+
+Based on google-code-to-github-issues.pl by Tatsuhiko Miyagawa
+(http://remediecode.org/2009/04/moved-issues-to-github.html)
+
+=head1 LICENSE
+
+This program is free softwarew; you can redistribute it and/or modify it
+under the same terms as Perl itself.
+
+
+=cut
+
