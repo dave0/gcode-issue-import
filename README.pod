@@ -39,6 +39,10 @@ your git configuration with `git config`
 Your Github API token.  Optional.  If not provided, value will be pulled from
 your git configuration with `git config`
 
+=item --start-index <integer>
+
+Google Code issue ID to start at.  Optional.  If not provided, defaults to 1.
+
 =item --help
 
 Short-form help

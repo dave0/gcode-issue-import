@@ -48,6 +48,10 @@ your git configuration with `git config`
 Your Github API token.  Optional.  If not provided, value will be pulled from
 your git configuration with `git config`
 
+=item --start-index <integer>
+
+Google Code issue ID to start at.  Optional.  If not provided, defaults to 1.
+
 =item --help
 
 Short-form help
@@ -91,13 +95,14 @@ under the same terms as Perl itself.
 
 our $VERSION = '0.100';
 
-my($gc_proj, $gh_proj);
+my($gc_proj, $gh_proj, $start_index, $max_results);
 my %github;
 GetOptions(
 	'from=s'         => \$gc_proj,
 	'to=s'           => \$gh_proj,
 	'github-login=s' => \$github{'login'},
 	'github-token=s' => \$github{'token'},
+	'start-index=i'  => \$start_index,
 	'help'           => sub { pod2usage( -exitval => 0, -verbose => 1 ) },
 	'man'            => sub { pod2usage( -exitval => 0, -verbose => 2 ) },
 ) || pod2usage( -exitval => 1, -verbose => 0 );
@@ -109,6 +114,9 @@ if( !$gc_proj ) {
 if( !$gh_proj || $gh_proj !~ m{^[^/]+/[^/]+$}) {
 	pod2usage( -message => 'You must specify a valid-looking Github repository with --to');
 }
+
+$start_index ||= 1;
+$max_results   = 1_000;  # TODO: configureable, and/or loop with smaller max until we fetch all
 
 @github{qw( owner repo )} = split '/', $gh_proj;
 
@@ -126,7 +134,7 @@ my @gcode_closed_statii = qw(
 	WontFix
 );
 
-for my $issue ( $code->issue->list() ) {
+for my $issue ( $code->issue->list(can => 'all', start_index => $start_index, max_results => $max_results ) ) {
 
 	$issue->load_comments();
 
