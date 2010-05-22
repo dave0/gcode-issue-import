@@ -6,6 +6,7 @@ use Net::Google::Code '0.19';
 use Net::GitHub '0.21';
 use Getopt::Long;
 use Pod::Usage;
+use Carp qw(confess);
 
 =head1 NAME
 
@@ -138,30 +139,27 @@ for my $issue ( $code->issue->list(can => 'all', start_index => $start_index, ma
 
 	$issue->load_comments();
 
-	import_issue( $github->issue, $issue );
+	import_issue( $github, $issue );
 
 	# Ensure we don't blow Github's 60 requests per minute API limit.
 	sleep (2);
 }
 
+# die()'s on ANY error we know about.  Caller must catch.
 sub import_issue
 {
-	my ($gi, $issue) = @_;
+	my ($github, $issue) = @_;
 
 	my $desc_with_user =
 		"Originally filed by " . $issue->reporter . " on " . $issue->reported
 		. "\n\n"
 		. $issue->description();
 
-	my $gh_issue = $gi->open($issue->summary, $desc_with_user);
-
-	if( ! $gh_issue->{number} ) {
-		# Probably an error
-		if( exists $gh_issue->{error} ) {
-			die "Net::GitHub aborted ticket creation with error: $gh_issue->{error}";
-		}
-		die "Net::GitHub didn't successfully create a ticket for some unknown reason, instead returning $gh_issue";
-	}
+	my $gh_issue = Private::Net::GitHub::Issue->new({
+		github  => $github,
+		title   => $issue->summary,
+		body    => $desc_with_user,
+	});
 
 	print 'Google Code issue '
 		. $issue->id
@@ -172,7 +170,7 @@ sub import_issue
 
 	# Labels
 	foreach my $label ( @{ $issue->labels } ) {
-		$gi->add_label( $gh_issue->{number}, $label );
+		$gh_issue->add_label( $label );
 	}
 
 	# Comments
@@ -193,10 +191,10 @@ sub import_issue
 				my $l = delete $comment->updates->{labels};
 				foreach ( @{ $l } ) {
 					if( s/^-// ) {
-						$gi->remove_label( $gh_issue->{number}, $_);
+						$gh_issue->remove_label( $_ );
 						push(@update_info, "Removed label $_");
 					} else {
-						$gi->add_label( $gh_issue->{number}, $_);
+						$gh_issue->add_label( $_ );
 						push(@update_info, "Added label $_");
 					}
 				}
@@ -204,17 +202,15 @@ sub import_issue
 
 			if( exists $comment->updates->{status} ) {
 				my $s = delete $comment->updates->{status};
-				update_status( $gi, $gh_issue, $s );
+				$gh_issue->set_status( $s );
 				push(@update_info, "Original ticket set status to $s (we converted to $gh_issue->{state})");
 			}
 
 			if( exists $comment->updates->{summary} ) {
 				my $s = delete $comment->updates->{summary};
-				$gi->edit( $gh_issue->{number},
-					$s,
-					$gh_issue->{body});
-				push(@update_info, "Summary changed from '$gh_issue->{summary}' to '$s'");
-				$gh_issue->{summary} = $s;
+				my $old_title = $gh_issue->{title};
+				$gh_issue->edit( $s );
+				push(@update_info, "Title changed from '$old_title' to '$s'");
 			}
 
 			# Warn of missed updates
@@ -239,29 +235,92 @@ sub import_issue
 			$comment_with_user .= "\n\n" . join("\n", @update_info);
 		}
 
-		$gi->comment($gh_issue->{number}, $comment_with_user);
+		$gh_issue->comment( $comment_with_user );
 	}
 
 	# Set the current ticket status, if changed
 	my $old_state = $gh_issue->{state};
-	update_status( $gi, $gh_issue, $issue->status );
+	$gh_issue->set_status( $issue->status );
 	if( $old_state ne $gh_issue->{state} ) {
 		my $s = $issue->status;
-		$gi->comment( $gh_issue->{number}, "Original ticket set status to $s (we converted to $gh_issue->{state})");
+		$gh_issue->comment("Original ticket set status to $s (we converted to $gh_issue->{state})");
 	}
 
 	# TODO attachments?
 }
 
-sub update_status
+package Private::Net::GitHub::Issue;
+use Carp qw(confess);
+
+sub _die_if_error
 {
-	my ($gi, $gh, $gcode_status) = @_;
+	my ($return) = @_;
+
+	confess "got error: $return->{error}" if (ref($return) eq 'HASH' && exists $return->{error});
+
+	return 1;
+}
+
+sub new
+{
+	my ($class, $args) = @_;
+
+	my $gi = $args->{github}->issue();
+
+	my $self = $gi->open($args->{title}, $args->{body});
+
+	_die_if_error( $self );
+
+	if( ! $self->{number} ) {
+		confess "Didn't get an incident number from ->open";
+	}
+
+	$self->{_gi} = $gi;
+
+	bless $self, $class;
+}
+
+sub add_label
+{
+	my ($self, $label) = @_;
+	_die_if_error( $self->{_gi}->add_label($self->{number}, $label ) );
+}
+
+sub remove_label
+{
+	my ($self, $label) = @_;
+	_die_if_error( $self->{_gi}->remove_label($self->{number}, $label ) );
+}
+
+sub edit
+{
+	my ($self, $title, $body) = @_;
+
+	$title = $self->{title} unless defined $title;
+	$body  = $self->{body}  unless defined $body;
+
+	_die_if_error( $self->{_gi}->edit($self->{number}, $title, $body ) );
+	$self->{title} = $title;
+
+	return 1;
+}
+
+sub comment
+{
+	my ($self, $comment) = @_;
+	_die_if_error( $self->{_gi}->comment($self->{number}, $comment ) );
+}
+
+sub set_status
+{
+	my ($self, $gcode_status) = @_;
+
 	if( grep { $_ eq $gcode_status } @gcode_closed_statii ) {
-		$gi->close( $gh->{number} ) unless $gh->{state} eq 'closed';
-		$gh->{state} = 'closed';
+		_die_if_error( $self->{_gi}->close( $self->{number} ) ) unless $self->{state} eq 'closed';
+		$self->{state} = 'closed';
 	} else {
-		$gi->reopen( $gh->{number} ) unless $gh->{state} eq 'open';
-		$gh->{state} = 'open';
+		_die_if_error( $self->{_gi}->reopen( $self->{number} ) ) unless $self->{state} eq 'open';
+		$self->{state} = 'open';
 	}
 }
 
