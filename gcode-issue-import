@@ -248,7 +248,7 @@ sub import_issue
 
 package Private::Net::GitHub::Issue;
 use Carp qw(confess);
-
+use URI::Escape;
 
 sub _throttle_request_rate
 {
@@ -290,14 +290,14 @@ sub add_label
 {
 	my ($self, $label) = @_;
 	_throttle_request_rate();
-	_die_if_error( $self->{_gi}->add_label($self->{number}, $label ) );
+	_die_if_error( $self->{_gi}->add_label($self->{number}, uri_escape($label, "^A-Za-z0-9\-_~") ) );
 }
 
 sub remove_label
 {
 	my ($self, $label) = @_;
 	_throttle_request_rate();
-	_die_if_error( $self->{_gi}->remove_label($self->{number}, $label ) );
+	_die_if_error( $self->{_gi}->remove_label($self->{number}, uri_escape($label, "^A-Za-z0-9\-_~" ) ) );
 }
 
 sub edit
